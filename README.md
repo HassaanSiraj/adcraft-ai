@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## AdCraft AI
 
-## Getting Started
+Generate catchy ad copies and banner ideas with AI.
 
-First, run the development server:
+### Tech
+- Next.js 15 (App Router) + TypeScript + TailwindCSS
+- API Routes (serverless) for AI calls
+- Gemini API (text) + Hugging Face Inference (image)
+
+### Quick Start
+1) Copy environment file:
+
+```bash
+cp env.example .env.local
+```
+
+2) Fill in API keys in `.env.local`:
+- `GEMINI_API_KEY` — get one at Google AI Studio
+- `HUGGINGFACE_API_KEY` — create a token at Hugging Face
+
+3) Run dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Pages
+- `/` — Home with hero & CTA
+- `/ad-generator` — Form for product inputs, generates:
+  - 3 ad copies (headline + caption)
+  - 3 slogans
+  - 5 hashtags
+  - Banner image (if HF key) or banner prompt
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### API
+`POST /api/generateAd`
 
-## Learn More
+Request body:
+```json
+{
+  "productName": "string",
+  "productDescription": "string",
+  "targetAudience": "string",
+  "tone": "Funny|Professional|Emotional|Luxury|Bold|Friendly",
+  "platform": "Facebook|Instagram|Google Ads|LinkedIn"
+}
+```
 
-To learn more about Next.js, take a look at the following resources:
+Response:
+```json
+{
+  "copies": [{ "headline": "string", "caption": "string" }],
+  "slogans": ["string"],
+  "hashtags": ["#tag"],
+  "bannerPrompt": "string",
+  "imageBase64": "base64?"
+}
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Free API Options (recommended)
+- Gemini: Free tier available — create an API key in Google AI Studio (region dependent)
+- Hugging Face Inference: Free tier for hosted models — create a token and use model `stabilityai/stable-diffusion-2-1`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+If you prefer a different image provider (e.g., Fal.ai, Replicate, Stability AI), we can switch the route to that — provide an API key and model name.
 
-## Deploy on Vercel
+### Deployment
+- Frontend + API routes: Vercel (zero-config for Next.js)
+- Add environment variables in Vercel Project Settings → Environment Variables
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Notes
+- We intentionally call Gemini via REST (no extra SDK) to keep dependencies minimal.
+- If no `HUGGINGFACE_API_KEY` is set, the API returns a banner prompt instead of an image.
