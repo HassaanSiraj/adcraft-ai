@@ -40,32 +40,52 @@ async function callGemini(input: GenerateAdBody) {
     throw new Error("Missing GEMINI_API_KEY");
   }
   const prompt = buildPrompt(input);
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" +
-    GEMINI_API_KEY;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.9,
-        maxOutputTokens: 600,
-      },
-    }),
-  });
+  const candidateModels = [
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.0-pro",
+    "gemini-pro",
+  ];
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini error: ${res.status} ${text}`);
+  let data: any | null = null;
+  let lastErr: string | null = null;
+  for (const model of candidateModels) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=` +
+      GEMINI_API_KEY;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.9,
+          maxOutputTokens: 600,
+        },
+      }),
+    });
+
+    if (res.ok) {
+      data = await res.json();
+      break;
+    } else {
+      const text = await res.text();
+      lastErr = `Gemini error (${model}): ${res.status} ${text}`;
+      // If 404 model not found, try next model
+      if (res.status === 404) continue;
+      // For other errors, stop early
+      break;
+    }
   }
-  const data = (await res.json()) as any;
+  if (!data) {
+    throw new Error(lastErr || "Gemini error");
+  }
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
   if (!text) throw new Error("Empty response from Gemini");
 
@@ -89,7 +109,7 @@ async function callHuggingFaceImage(prompt: string): Promise<string | null> {
     method: "POST",
     headers: {
       Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-      Accept: "image/png",
+      Accept: "image/png,image/jpeg,*/*",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
