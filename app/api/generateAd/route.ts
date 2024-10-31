@@ -40,52 +40,67 @@ async function callGemini(input: GenerateAdBody) {
     throw new Error("Missing GEMINI_API_KEY");
   }
   const prompt = buildPrompt(input);
-  const candidateModels = [
+  // Discover available models for this key/region and pick the best available
+  const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
+  let available: { id: string; methods: string[] }[] = [];
+  try {
+    const listRes = await fetch(listUrl, { method: "GET" });
+    if (listRes.ok) {
+      const j = (await listRes.json()) as any;
+      available = (j?.models || []).map((m: any) => ({
+        id: String(m?.name || "").split("/").pop() || "",
+        methods: Array.isArray(m?.supportedGenerationMethods)
+          ? m.supportedGenerationMethods
+          : [],
+      }));
+    }
+  } catch {}
+
+  const preference = [
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
     "gemini-1.0-pro",
     "gemini-pro",
   ];
+  const supportsGenerateContent = (m: { id: string; methods: string[] }) =>
+    m.id && m.methods.includes("generateContent");
 
-  let data: any | null = null;
-  let lastErr: string | null = null;
-  for (const model of candidateModels) {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=` +
-      GEMINI_API_KEY;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.9,
-          maxOutputTokens: 600,
+  let chosen = available.find(
+    (m) => supportsGenerateContent(m) && preference.includes(m.id)
+  )?.id;
+  if (!chosen) {
+    chosen = available.find(supportsGenerateContent)?.id;
+  }
+  // Final fallback to a safe default if listing failed
+  if (!chosen) chosen = "gemini-1.5-flash";
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${chosen}:generateContent?key=` +
+    GEMINI_API_KEY;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
         },
-      }),
-    });
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.9,
+        maxOutputTokens: 600,
+      },
+    }),
+  });
 
-    if (res.ok) {
-      data = await res.json();
-      break;
-    } else {
-      const text = await res.text();
-      lastErr = `Gemini error (${model}): ${res.status} ${text}`;
-      // If 404 model not found, try next model
-      if (res.status === 404) continue;
-      // For other errors, stop early
-      break;
-    }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini error (${chosen}): ${res.status} ${text}`);
   }
-  if (!data) {
-    throw new Error(lastErr || "Gemini error");
-  }
+  const data = (await res.json()) as any;
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
   if (!text) throw new Error("Empty response from Gemini");
 
