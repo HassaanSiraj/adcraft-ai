@@ -56,21 +56,27 @@ async function callGemini(input: GenerateAdBody) {
     }
   } catch {}
 
+  // Allow user to force a specific model via env
+  const forced = (process.env.GEMINI_MODEL || "").trim();
+  if (forced) {
+    available = [{ id: forced, methods: ["generateContent"] }];
+  }
+
   const preference = [
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
-    "gemini-1.5-pro",
     "gemini-1.0-pro",
-    "gemini-pro",
   ];
   const supportsGenerateContent = (m: { id: string; methods: string[] }) =>
     m.id && m.methods.includes("generateContent");
+  const notPreviewOr25 = (id: string) =>
+    !/^gemini-2/i.test(id) && !/preview|exp/i.test(id);
 
   let chosen = available.find(
-    (m) => supportsGenerateContent(m) && preference.includes(m.id)
+    (m) => supportsGenerateContent(m) && preference.includes(m.id) && notPreviewOr25(m.id)
   )?.id;
   if (!chosen) {
-    chosen = available.find(supportsGenerateContent)?.id;
+    chosen = available.find((m) => supportsGenerateContent(m) && notPreviewOr25(m.id))?.id;
   }
   // Final fallback to a safe default if listing failed
   if (!chosen) chosen = "gemini-1.5-flash";
@@ -91,12 +97,48 @@ async function callGemini(input: GenerateAdBody) {
       generationConfig: {
         temperature: 0.7,
         topP: 0.9,
-        maxOutputTokens: 600,
+        maxOutputTokens: 400,
       },
     }),
   });
 
   if (!res.ok) {
+    // If 429 quota, try a brief retry or suggest upgrade
+    if (res.status === 429) {
+      let retryMs = 4000;
+      try {
+        const j = await res.json();
+        const details = j?.error?.details || [];
+        const retry = details.find((d: any) => d?.["@type"]?.includes("RetryInfo"));
+        const delay = retry?.retryDelay || ""; // e.g., "4s"
+        const m = String(delay).match(/(\d+(?:\.\d+)?)s/);
+        if (m) retryMs = Math.ceil(parseFloat(m[1]) * 1000);
+      } catch {}
+      await new Promise((r) => setTimeout(r, retryMs));
+      const res2 = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: prompt }] },
+          ],
+          generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 400 },
+        }),
+      });
+      if (!res2.ok) {
+        const text2 = await res2.text();
+        throw new Error(
+          `Gemini quota exceeded. Consider enabling billing or using a free-tier model (e.g., gemini-1.5-flash). Error (${chosen}): ${res2.status} ${text2}`
+        );
+      }
+      const data2 = await res2.json();
+      const text2 = data2?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+      if (!text2) throw new Error("Empty response from Gemini");
+      const firstBrace2 = text2.indexOf("{");
+      const lastBrace2 = text2.lastIndexOf("}");
+      const jsonSlice2 = firstBrace2 !== -1 && lastBrace2 !== -1 ? text2.slice(firstBrace2, lastBrace2 + 1) : text2;
+      return JSON.parse(jsonSlice2);
+    }
     const text = await res.text();
     throw new Error(`Gemini error (${chosen}): ${res.status} ${text}`);
   }
