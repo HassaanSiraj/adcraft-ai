@@ -28,6 +28,7 @@ export default function AdGeneratorPage() {
         hashtags: string[];
         bannerPrompt: string;
         imageBase64?: string | null;
+        imageNote?: string;
       }
   >(null);
 
@@ -272,6 +273,9 @@ export default function AdGeneratorPage() {
               ) : (
                 <div className="mt-3 rounded-lg border border-foreground/10 p-4">
                   <p className="text-sm whitespace-pre-wrap">{result.bannerPrompt}</p>
+                  {result.imageNote && (
+                    <p className="mt-2 text-xs text-foreground/60">{result.imageNote}</p>
+                  )}
                   <div className="mt-3">
                     <button
                       type="button"

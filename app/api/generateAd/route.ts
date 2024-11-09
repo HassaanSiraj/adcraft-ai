@@ -194,7 +194,16 @@ export async function POST(req: NextRequest) {
     const textData = await callGemini(body);
 
     const bannerPrompt = `High-quality marketing banner that highlights ${productName}. Style: ${tone}. Platform: ${platform}. Audience: ${targetAudience}. Visual suggestions: ${productDescription}. Clean layout, strong focal product, brand-friendly colors.`;
-    const imageBase64 = await callHuggingFaceImage(bannerPrompt);
+    let imageBase64: string | null = null;
+    let imageNote: string | undefined;
+    if (!HUGGINGFACE_API_KEY) {
+      imageNote = "No HUGGINGFACE_API_KEY configured. Returning a banner prompt instead of an image.";
+    } else {
+      imageBase64 = await callHuggingFaceImage(bannerPrompt);
+      if (!imageBase64) {
+        imageNote = "Hugging Face image request failed. Check token permissions, model availability, or rate limits.";
+      }
+    }
 
     return NextResponse.json({
       copies: textData.copies,
@@ -202,6 +211,7 @@ export async function POST(req: NextRequest) {
       hashtags: textData.hashtags,
       bannerPrompt,
       imageBase64,
+      imageNote,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
