@@ -159,28 +159,56 @@ async function callGemini(input: GenerateAdBody) {
   return parsed;
 }
 
-async function callHuggingFaceImage(prompt: string): Promise<string | null> {
-  if (!HUGGINGFACE_API_KEY) return null;
-  const model = "stabilityai/stable-diffusion-2-1";
-  const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-      Accept: "image/png,image/jpeg,*/*",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      inputs: prompt,
-      options: { wait_for_model: true },
-    }),
-  });
-  if (!res.ok) {
-    // return null rather than throw; text results are still useful
-    return null;
+type HFImageResult = { base64: string | null; note?: string; modelTried?: string };
+
+async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
+  if (!HUGGINGFACE_API_KEY) return { base64: null, note: "No HUGGINGFACE_API_KEY configured." };
+  const candidates = [
+    "black-forest-labs/FLUX.1-schnell",
+    "stabilityai/stable-diffusion-2-1",
+  ];
+
+  for (const model of candidates) {
+    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+        Accept: "image/png,image/jpeg,*/*",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputs: prompt,
+        options: { wait_for_model: true },
+      }),
+    });
+    if (res.ok) {
+      const arrayBuf = await res.arrayBuffer();
+      const base64 = Buffer.from(arrayBuf).toString("base64");
+      return { base64, modelTried: model };
+    }
+    const text = await res.text().catch(() => "");
+    // Provide a helpful note for common cases
+    if (res.status === 401) {
+      return { base64: null, modelTried: model, note: "Invalid Hugging Face token (401). Regenerate a token and set HUGGINGFACE_API_KEY." };
+    }
+    if (res.status === 403) {
+      return {
+        base64: null,
+        modelTried: model,
+        note: `Access to ${model} is gated. Visit the model page on Hugging Face and accept the terms, or choose a different model. (${text.slice(0, 200)}...)`,
+      };
+    }
+    if (res.status === 429) {
+      return { base64: null, modelTried: model, note: "Hugging Face rate limit (429). Wait a minute and try again." };
+    }
+    if (res.status === 503) {
+      // Model loading or unavailable; try next candidate
+      continue;
+    }
+    // Other error; try next but keep note
+    return { base64: null, modelTried: model, note: `HF ${model} error ${res.status}: ${text.slice(0, 200)}...` };
   }
-  const arrayBuf = await res.arrayBuffer();
-  const base64 = Buffer.from(arrayBuf).toString("base64");
-  return base64;
+  return { base64: null, note: "No available HF model responded successfully." };
 }
 
 export async function POST(req: NextRequest) {
@@ -196,13 +224,14 @@ export async function POST(req: NextRequest) {
     const bannerPrompt = `High-quality marketing banner that highlights ${productName}. Style: ${tone}. Platform: ${platform}. Audience: ${targetAudience}. Visual suggestions: ${productDescription}. Clean layout, strong focal product, brand-friendly colors.`;
     let imageBase64: string | null = null;
     let imageNote: string | undefined;
+    let imageModel: string | undefined;
     if (!HUGGINGFACE_API_KEY) {
       imageNote = "No HUGGINGFACE_API_KEY configured. Returning a banner prompt instead of an image.";
     } else {
-      imageBase64 = await callHuggingFaceImage(bannerPrompt);
-      if (!imageBase64) {
-        imageNote = "Hugging Face image request failed. Check token permissions, model availability, or rate limits.";
-      }
+      const hf = await callHuggingFaceImage(bannerPrompt);
+      imageBase64 = hf.base64;
+      imageNote = hf.note;
+      imageModel = hf.modelTried;
     }
 
     return NextResponse.json({
@@ -211,6 +240,7 @@ export async function POST(req: NextRequest) {
       hashtags: textData.hashtags,
       bannerPrompt,
       imageBase64,
+      imageModel,
       imageNote,
     });
   } catch (err: any) {

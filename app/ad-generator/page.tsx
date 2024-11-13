@@ -29,6 +29,7 @@ export default function AdGeneratorPage() {
         bannerPrompt: string;
         imageBase64?: string | null;
         imageNote?: string;
+        imageModel?: string;
       }
   >(null);
 
@@ -269,6 +270,9 @@ export default function AdGeneratorPage() {
                       Copy Prompt
                     </button>
                   </div>
+                  {result.imageModel && (
+                    <p className="mt-2 text-xs text-foreground/60">Model: {result.imageModel}</p>
+                  )}
                 </div>
               ) : (
                 <div className="mt-3 rounded-lg border border-foreground/10 p-4">
