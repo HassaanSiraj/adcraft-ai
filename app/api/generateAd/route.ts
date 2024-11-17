@@ -169,11 +169,11 @@ async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
   ];
 
   for (const model of candidates) {
-    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+    const res = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-        Accept: "image/png,image/jpeg,*/*",
+        Accept: "image/png,image/jpeg,image/webp,*/*",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
