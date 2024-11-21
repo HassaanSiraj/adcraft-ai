@@ -173,7 +173,7 @@ async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
       method: "POST",
       headers: {
         Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
-        Accept: "image/png,image/jpeg,image/webp,*/*",
+        Accept: "application/json",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -182,9 +182,29 @@ async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
       }),
     });
     if (res.ok) {
-      const arrayBuf = await res.arrayBuffer();
-      const base64 = Buffer.from(arrayBuf).toString("base64");
-      return { base64, modelTried: model };
+      const ct = res.headers.get("content-type") || "";
+      if (ct.startsWith("image/")) {
+        const arrayBuf = await res.arrayBuffer();
+        const base64 = Buffer.from(arrayBuf).toString("base64");
+        return { base64, modelTried: model };
+      }
+      // Router returns JSON envelope; try to extract base64 image
+      const json = await res.json().catch(() => null);
+      if (json) {
+        const stack: any[] = [json];
+        const b64Regex = /^[A-Za-z0-9+/=\n\r]+$/;
+        while (stack.length) {
+          const node = stack.pop();
+          if (!node) continue;
+          if (typeof node === "string" && node.length > 100 && b64Regex.test(node)) {
+            return { base64: node.replace(/\n|\r/g, ""), modelTried: model };
+          }
+          if (Array.isArray(node)) stack.push(...node);
+          else if (typeof node === "object") stack.push(...Object.values(node));
+        }
+        return { base64: null, modelTried: model, note: "HF router returned JSON without an image payload. Ensure this model supports text-to-image at the router endpoint." };
+      }
+      return { base64: null, modelTried: model, note: "HF router returned unexpected response." };
     }
     const text = await res.text().catch(() => "");
     // Provide a helpful note for common cases
