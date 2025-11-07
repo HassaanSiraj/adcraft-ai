@@ -267,7 +267,10 @@ function synthesizeAds(input: GenerateAdBody): { copies: AdCopy[]; slogans: stri
 
 type HFImageResult = { base64: string | null; note?: string; modelTried?: string };
 
-async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
+async function callHuggingFaceImage(
+  prompt: string,
+  opts?: { width?: number; height?: number }
+): Promise<HFImageResult> {
   if (!HUGGINGFACE_API_KEY) return { base64: null, note: "No HUGGINGFACE_API_KEY configured." };
   const candidates = [
     "black-forest-labs/FLUX.1-schnell",
@@ -284,6 +287,11 @@ async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
       },
       body: JSON.stringify({
         inputs: prompt,
+        parameters: {
+          // Many image models accept width/height via parameters
+          ...(opts?.width ? { width: opts.width } : {}),
+          ...(opts?.height ? { height: opts.height } : {}),
+        },
         options: { wait_for_model: true },
       }),
     });
@@ -361,13 +369,22 @@ export async function POST(req: NextRequest) {
     let imageBase64: string | null = null;
     let imageNote: string | undefined;
     let imageModel: string | undefined;
+    let imageLandscapeBase64: string | null = null;
+    let imageLandscapeModel: string | undefined;
+    let imageLandscapeNote: string | undefined;
     if (!HUGGINGFACE_API_KEY) {
       imageNote = "No HUGGINGFACE_API_KEY configured. Returning a banner prompt instead of an image.";
     } else {
-      const hf = await callHuggingFaceImage(bannerPrompt);
+      // Portrait/standard banner ~4:5
+      const hf = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Portrait 4:5.", { width: 1024, height: 1280 });
       imageBase64 = hf.base64;
       imageNote = hf.note;
       imageModel = hf.modelTried;
+      // Landscape 16:9
+      const hfL = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Landscape 16:9.", { width: 1280, height: 720 });
+      imageLandscapeBase64 = hfL.base64;
+      imageLandscapeNote = hfL.note;
+      imageLandscapeModel = hfL.modelTried;
     }
 
     return NextResponse.json({
@@ -378,6 +395,9 @@ export async function POST(req: NextRequest) {
       imageBase64,
       imageModel,
       imageNote,
+      imageLandscapeBase64,
+      imageLandscapeModel,
+      imageLandscapeNote,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });

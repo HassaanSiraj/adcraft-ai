@@ -33,6 +33,9 @@ export default function AdGeneratorPage() {
         imageBase64?: string | null;
         imageNote?: string;
         imageModel?: string;
+        imageLandscapeBase64?: string | null;
+        imageLandscapeModel?: string;
+        imageLandscapeNote?: string;
       }
   >(null);
 
@@ -317,6 +320,29 @@ export default function AdGeneratorPage() {
                   </div>
                   {result.imageModel && (
                     <p className="mt-2 text-xs text-foreground/60">Model: {result.imageModel}</p>
+                  )}
+                  {/* Landscape variant */}
+                  {result.imageLandscapeBase64 && (
+                    <div className="mt-8">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt="Generated landscape banner"
+                        className="w-full max-w-3xl rounded border border-foreground/10"
+                        src={`data:image/png;base64,${result.imageLandscapeBase64}`}
+                      />
+                      <div className="mt-3 flex items-center gap-3">
+                        <a
+                          download={`${productName.replace(/\s+/g, "-").toLowerCase()}-banner-landscape.png`}
+                          href={`data:image/png;base64,${result.imageLandscapeBase64}`}
+                          className="rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90"
+                        >
+                          Download Landscape
+                        </a>
+                      </div>
+                      {result.imageLandscapeModel && (
+                        <p className="mt-2 text-xs text-foreground/60">Model: {result.imageLandscapeModel}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (
