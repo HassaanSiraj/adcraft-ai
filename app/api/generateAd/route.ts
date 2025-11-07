@@ -9,12 +9,15 @@ type GenerateAdBody = {
   targetAudience: string;
   tone: string;
   platform: string;
+  marketingGoal?: string;
+  emotion?: string;
+  brandStyle?: string;
 };
 
 type AdCopy = { headline: string; caption: string };
 
 function buildPrompt(input: GenerateAdBody): string {
-  const { productName, productDescription, targetAudience, tone, platform } = input;
+  const { productName, productDescription, targetAudience, tone, platform, marketingGoal, emotion, brandStyle } = input;
   return [
     `You are AdCraft AI, an advertising assistant. Given a product and context, generate engaging, platform-aware ad content.`,
     `Product Name: ${productName}`,
@@ -22,17 +25,22 @@ function buildPrompt(input: GenerateAdBody): string {
     `Target Audience: ${targetAudience}`,
     `Tone: ${tone}`,
     `Platform: ${platform}`,
+    marketingGoal ? `Primary Marketing Goal: ${marketingGoal}` : undefined,
+    brandStyle ? `Brand Style: ${brandStyle}` : undefined,
+    emotion ? `Desired Emotion: ${emotion}` : undefined,
     `Tasks:`,
     `1) Create 3 short ad copies, each with a "headline" (<= 8 words) and a "caption" (<= 25 words).`,
     `2) Create 3 slogans/taglines (<= 6 words).`,
     `3) Create 5 relevant, platform-appropriate hashtags.`,
     `Guidelines:`,
     `- Adapt to ${platform} best practices (e.g., concise for Google Ads; visual/story for Instagram; professional for LinkedIn; conversational for Facebook).`,
-    `- Maintain the specified tone.`,
+    `- Maintain the specified tone${brandStyle ? ` in a ${brandStyle} style` : ""}.`,
+    emotion ? `- Aim to evoke: ${emotion}.` : undefined,
+    marketingGoal ? `- Optimize to: ${marketingGoal}.` : undefined,
     `- Avoid emojis unless well-suited to the platform.`,
     `Output strictly in JSON with this schema:`,
     `{"copies":[{"headline":"string","caption":"string"},...],"slogans":["string",...],"hashtags":["#tag",...]}`
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 async function callGemini(input: GenerateAdBody) {
@@ -234,14 +242,24 @@ async function callHuggingFaceImage(prompt: string): Promise<HFImageResult> {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GenerateAdBody;
-    const { productName, productDescription, targetAudience, tone, platform } = body || {};
+    const { productName, productDescription, targetAudience, tone, platform, marketingGoal, emotion, brandStyle } = body || {};
     if (!productName || !productDescription || !targetAudience || !tone || !platform) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
     const textData = await callGemini(body);
 
-    const bannerPrompt = `High-quality marketing banner that highlights ${productName}. Style: ${tone}. Platform: ${platform}. Audience: ${targetAudience}. Visual suggestions: ${productDescription}. Clean layout, strong focal product, brand-friendly colors.`;
+    const bannerPrompt = [
+      `Create a visually stunning marketing banner for "${productName}".`,
+      `Goal: ${marketingGoal || "capture attention and increase engagement"}.`,
+      `Style: ${tone}${brandStyle ? ` and ${brandStyle}` : ""}.`,
+      `Platform: ${platform}.`,
+      `Target Audience: ${targetAudience}.`,
+      `Focus: ${productDescription}.`,
+      `Include strong visual hierarchy, bold typography, and balanced composition.`,
+      `Incorporate brand-friendly colors and dynamic lighting${emotion ? ` that evoke ${emotion}` : ""}.`,
+      `Make the design look professional, scroll-stopping, and ad-ready.`,
+    ].join("\n");
     let imageBase64: string | null = null;
     let imageNote: string | undefined;
     let imageModel: string | undefined;

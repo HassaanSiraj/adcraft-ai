@@ -18,6 +18,9 @@ export default function AdGeneratorPage() {
   const [targetAudience, setTargetAudience] = useState("");
   const [tone, setTone] = useState<ToneOption>("Professional");
   const [platform, setPlatform] = useState<PlatformOption>("Facebook");
+  const [marketingGoal, setMarketingGoal] = useState("capture attention and increase engagement");
+  const [emotion, setEmotion] = useState("trust and excitement");
+  const [brandStyle, setBrandStyle] = useState("modern, professional");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<
@@ -58,6 +61,9 @@ export default function AdGeneratorPage() {
                   targetAudience,
                   tone,
                   platform,
+                  marketingGoal,
+                  emotion,
+                  brandStyle,
                 }),
               });
               if (!res.ok) {
@@ -83,6 +89,45 @@ export default function AdGeneratorPage() {
               onChange={(e) => setProductName(e.target.value)}
               placeholder="Acme SmartBottle"
               required
+              className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 outline-none ring-2 ring-transparent focus:ring-foreground/20"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <label htmlFor="marketingGoal" className="text-sm font-medium">
+              Marketing Goal
+            </label>
+            <input
+              id="marketingGoal"
+              value={marketingGoal}
+              onChange={(e) => setMarketingGoal(e.target.value)}
+              placeholder="capture attention and increase engagement"
+              className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 outline-none ring-2 ring-transparent focus:ring-foreground/20"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <label htmlFor="emotion" className="text-sm font-medium">
+              Emotion to Evoke
+            </label>
+            <input
+              id="emotion"
+              value={emotion}
+              onChange={(e) => setEmotion(e.target.value)}
+              placeholder="trust and excitement"
+              className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 outline-none ring-2 ring-transparent focus:ring-foreground/20"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <label htmlFor="brandStyle" className="text-sm font-medium">
+              Brand Style
+            </label>
+            <input
+              id="brandStyle"
+              value={brandStyle}
+              onChange={(e) => setBrandStyle(e.target.value)}
+              placeholder="modern, professional"
               className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 outline-none ring-2 ring-transparent focus:ring-foreground/20"
             />
           </div>
