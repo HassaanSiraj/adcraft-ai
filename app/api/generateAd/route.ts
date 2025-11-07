@@ -79,12 +79,13 @@ async function callGemini(input: GenerateAdBody) {
     m.id && m.methods.includes("generateContent");
   const notPreviewOr25 = (id: string) =>
     !/^gemini-2/i.test(id) && !/preview|exp/i.test(id);
+  const isGemini = (id: string) => /^gemini-/i.test(id);
 
   let chosen = available.find(
-    (m) => supportsGenerateContent(m) && preference.includes(m.id) && notPreviewOr25(m.id)
+    (m) => supportsGenerateContent(m) && isGemini(m.id) && preference.includes(m.id) && notPreviewOr25(m.id)
   )?.id;
   if (!chosen) {
-    chosen = available.find((m) => supportsGenerateContent(m) && notPreviewOr25(m.id))?.id;
+    chosen = available.find((m) => supportsGenerateContent(m) && isGemini(m.id) && notPreviewOr25(m.id))?.id;
   }
   // Final fallback to a safe default if listing failed
   if (!chosen) chosen = "gemini-1.5-flash";
@@ -120,13 +121,11 @@ async function callGemini(input: GenerateAdBody) {
                 },
                 required: ["headline", "caption"],
               },
-              minItems: 1,
             },
-            slogans: { type: "array", items: { type: "string" }, minItems: 1 },
-            hashtags: { type: "array", items: { type: "string" }, minItems: 1 },
+            slogans: { type: "array", items: { type: "string" } },
+            hashtags: { type: "array", items: { type: "string" } },
           },
           required: ["copies", "slogans", "hashtags"],
-          additionalProperties: false,
         },
       },
     }),
