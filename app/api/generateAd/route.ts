@@ -106,6 +106,28 @@ async function callGemini(input: GenerateAdBody) {
         temperature: 0.7,
         topP: 0.9,
         maxOutputTokens: 400,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "object",
+          properties: {
+            copies: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  headline: { type: "string" },
+                  caption: { type: "string" },
+                },
+                required: ["headline", "caption"],
+              },
+              minItems: 1,
+            },
+            slogans: { type: "array", items: { type: "string" }, minItems: 1 },
+            hashtags: { type: "array", items: { type: "string" }, minItems: 1 },
+          },
+          required: ["copies", "slogans", "hashtags"],
+          additionalProperties: false,
+        },
       },
     }),
   });
@@ -154,17 +176,22 @@ async function callGemini(input: GenerateAdBody) {
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
   if (!text) throw new Error("Empty response from Gemini");
 
-  // Try parse JSON; if fenced or with prose, extract first JSON object
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  const jsonSlice = firstBrace !== -1 && lastBrace !== -1 ? text.slice(firstBrace, lastBrace + 1) : text;
-  let parsed: { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+  // With responseMimeType set, 'text' should already be pure JSON
   try {
-    parsed = JSON.parse(jsonSlice);
-  } catch (e) {
-    throw new Error("Failed to parse Gemini JSON");
+    const parsed = JSON.parse(text);
+    return parsed as { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+  } catch {
+    // Fallback: extract first JSON object from text
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+    const jsonSlice = firstBrace !== -1 && lastBrace !== -1 ? text.slice(firstBrace, lastBrace + 1) : text;
+    try {
+      const parsed2 = JSON.parse(jsonSlice);
+      return parsed2 as { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+    } catch {
+      throw new Error("Failed to parse Gemini JSON");
+    }
   }
-  return parsed;
 }
 
 type HFImageResult = { base64: string | null; note?: string; modelTried?: string };
