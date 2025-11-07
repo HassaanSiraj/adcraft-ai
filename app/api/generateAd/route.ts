@@ -172,8 +172,32 @@ async function callGemini(input: GenerateAdBody) {
     throw new Error(`Gemini error (${chosen}): ${res.status} ${text}`);
   }
   const data = (await res.json()) as any;
-  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
-  if (!text) throw new Error("Empty response from Gemini");
+  let text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+  if (!text) {
+    const block = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason;
+    if (block && String(block).toLowerCase().includes("safety")) {
+      throw new Error(`Gemini blocked the response due to safety filters (${block}). Try adjusting inputs/tone.`);
+    }
+    // Fallback: try the same call without responseSchema/responseMimeType
+    const resLoose = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [ { role: "user", parts: [{ text: prompt }] } ],
+        generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 400 },
+      }),
+    });
+    if (!resLoose.ok) {
+      const looseTxt = await resLoose.text();
+      throw new Error(`Gemini error (fallback) ${resLoose.status}: ${looseTxt}`);
+    }
+    const looseData = await resLoose.json();
+    text = looseData?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+    if (!text) {
+      throw new Error("Empty response from Gemini");
+    }
+    // continue to parse below
+  }
 
   // With responseMimeType set, 'text' should already be pure JSON
   try {
