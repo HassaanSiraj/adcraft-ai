@@ -183,8 +183,8 @@ async function callGemini(input: GenerateAdBody) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [ { role: "user", parts: [{ text: prompt }] } ],
-        generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 400 },
+        contents: [ { role: "user", parts: [{ text: prompt + "\n\nReturn ONLY raw JSON with keys copies,slogans,hashtags. No code fences, no extra text." }] } ],
+        generationConfig: { temperature: 0.3, topP: 0.9, maxOutputTokens: 400 },
       }),
     });
     if (!resLoose.ok) {
