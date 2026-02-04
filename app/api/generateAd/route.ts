@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || "bytedance-seed/seedream-4.5";
 
 type GenerateAdBody = {
   productName: string;
@@ -268,6 +271,56 @@ async function callGroq(input: GenerateAdBody) {
   }
 }
 
+async function callOpenRouter(input: GenerateAdBody) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+  const prompt = buildPrompt(input);
+  const url = "https://openrouter.ai/api/v1/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "AdCraft AI",
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are AdCraft AI. Return ONLY compact JSON with keys copies,slogans,hashtags. No extra text.",
+        },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`OpenRouter error: ${res.status} ${t}`);
+  }
+  const data = (await res.json()) as any;
+  const text =
+    data?.choices?.[0]?.message?.content ||
+    data?.choices?.[0]?.delta?.content ||
+    "";
+  if (!text) throw new Error("Empty response from OpenRouter");
+  try {
+    return JSON.parse(text) as { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+  } catch {
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first !== -1 && last !== -1) {
+      return JSON.parse(text.slice(first, last + 1));
+    }
+    throw new Error("Failed to parse OpenRouter JSON");
+  }
+}
+
 function sanitizeHashtagFragment(fragment: string): string {
   return fragment
     .toLowerCase()
@@ -403,18 +456,38 @@ export async function POST(req: NextRequest) {
     }
 
     let textData: { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
-    try {
-      textData = await callGemini(body);
-    } catch (e: any) {
-      if (GROQ_API_KEY) {
+    // Preference: OpenRouter (user requested) -> Gemini -> Groq -> synthesize
+    if (OPENROUTER_API_KEY) {
+      try {
+        textData = await callOpenRouter(body);
+      } catch (orErr: any) {
         try {
-          textData = await callGroq(body);
-        } catch (gErr: any) {
-          // Last resort: synthesize
+          textData = await callGemini(body);
+        } catch {
+          if (GROQ_API_KEY) {
+            try {
+              textData = await callGroq(body);
+            } catch {
+              textData = synthesizeAds(body);
+            }
+          } else {
+            textData = synthesizeAds(body);
+          }
+        }
+      }
+    } else {
+      try {
+        textData = await callGemini(body);
+      } catch {
+        if (GROQ_API_KEY) {
+          try {
+            textData = await callGroq(body);
+          } catch {
+            textData = synthesizeAds(body);
+          }
+        } else {
           textData = synthesizeAds(body);
         }
-      } else {
-        textData = synthesizeAds(body);
       }
     }
 
