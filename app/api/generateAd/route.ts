@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 type GenerateAdBody = {
   productName: string;
@@ -219,6 +220,54 @@ async function callGemini(input: GenerateAdBody) {
   }
 }
 
+async function callGroq(input: GenerateAdBody) {
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY");
+  }
+  const prompt = buildPrompt(input);
+  const url = "https://api.groq.com/openai/v1/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are AdCraft AI. Return ONLY compact JSON with keys copies,slogans,hashtags. No extra text.",
+        },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Groq error: ${res.status} ${t}`);
+  }
+  const data = (await res.json()) as any;
+  const text =
+    data?.choices?.[0]?.message?.content ||
+    data?.choices?.[0]?.delta?.content ||
+    "";
+  if (!text) throw new Error("Empty response from Groq");
+  try {
+    return JSON.parse(text) as { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+  } catch {
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first !== -1 && last !== -1) {
+      return JSON.parse(text.slice(first, last + 1));
+    }
+    throw new Error("Failed to parse Groq JSON");
+  }
+}
+
 function sanitizeHashtagFragment(fragment: string): string {
   return fragment
     .toLowerCase()
@@ -353,7 +402,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const textData = await callGemini(body);
+    let textData: { copies: AdCopy[]; slogans: string[]; hashtags: string[] };
+    try {
+      textData = await callGemini(body);
+    } catch (e: any) {
+      if (GROQ_API_KEY) {
+        try {
+          textData = await callGroq(body);
+        } catch (gErr: any) {
+          // Last resort: synthesize
+          textData = synthesizeAds(body);
+        }
+      } else {
+        textData = synthesizeAds(body);
+      }
+    }
 
     const bannerPrompt = [
       `Create a visually stunning marketing banner for "${productName}".`,
