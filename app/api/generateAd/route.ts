@@ -6,6 +6,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || "bytedance-seed/seedream-4.5";
+const OPENROUTER_IMAGE_MODEL = process.env.OPENROUTER_IMAGE_MODEL || "";
 
 type GenerateAdBody = {
   productName: string;
@@ -447,6 +448,50 @@ async function callHuggingFaceImage(
   return { base64: null, note: "No available HF model responded successfully." };
 }
 
+type ORImageResult = { base64: string | null; note?: string; modelTried?: string };
+async function callOpenRouterImage(
+  prompt: string,
+  aspectRatio: "4:5" | "16:9"
+): Promise<ORImageResult> {
+  if (!OPENROUTER_API_KEY || !OPENROUTER_IMAGE_MODEL) {
+    return { base64: null, note: "OpenRouter image model not configured." };
+  }
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "AdCraft AI",
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_IMAGE_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      modalities: ["image", "text"],
+      stream: false,
+      image_config: {
+        aspect_ratio: aspectRatio,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    if (res.status === 401 || res.status === 403) {
+      return { base64: null, modelTried: OPENROUTER_IMAGE_MODEL, note: `OpenRouter auth or access error ${res.status}. ${t.slice(0, 180)}...` };
+    }
+    return { base64: null, modelTried: OPENROUTER_IMAGE_MODEL, note: `OpenRouter image error ${res.status}: ${t.slice(0, 180)}...` };
+  }
+  const data = await res.json().catch(() => null);
+  const msg = data?.choices?.[0]?.message;
+  const img = msg?.images?.[0]?.image_url?.url || msg?.images?.[0]?.imageUrl?.url;
+  if (typeof img === "string" && img.startsWith("data:image/")) {
+    // Strip header and keep base64 to match existing UI
+    const base64 = img.split(",")[1] || "";
+    return { base64: base64 || null, modelTried: OPENROUTER_IMAGE_MODEL };
+  }
+  return { base64: null, modelTried: OPENROUTER_IMAGE_MODEL, note: "OpenRouter did not return an image payload." };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GenerateAdBody;
@@ -508,19 +553,38 @@ export async function POST(req: NextRequest) {
     let imageLandscapeBase64: string | null = null;
     let imageLandscapeModel: string | undefined;
     let imageLandscapeNote: string | undefined;
-    if (!HUGGINGFACE_API_KEY) {
-      imageNote = "No HUGGINGFACE_API_KEY configured. Returning a banner prompt instead of an image.";
-    } else {
-      // Portrait/standard banner ~4:5
+    // Try OpenRouter image first if configured, otherwise use HF
+    if (OPENROUTER_API_KEY && OPENROUTER_IMAGE_MODEL) {
+      const orPortrait = await callOpenRouterImage(bannerPrompt + "\nAspect ratio: Portrait 4:5.", "4:5");
+      imageBase64 = orPortrait.base64;
+      imageNote = orPortrait.note;
+      imageModel = orPortrait.modelTried;
+      const orLandscape = await callOpenRouterImage(bannerPrompt + "\nAspect ratio: Landscape 16:9.", "16:9");
+      imageLandscapeBase64 = orLandscape.base64;
+      imageLandscapeNote = orLandscape.note;
+      imageLandscapeModel = orLandscape.modelTried;
+      // If OpenRouter fails, fall back to HF
+      if (!imageBase64 || !imageLandscapeBase64) {
+        const hfPortrait = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Portrait 4:5.", { width: 1024, height: 1280 });
+        imageBase64 = imageBase64 || hfPortrait.base64;
+        imageNote = imageNote || hfPortrait.note;
+        imageModel = imageModel || hfPortrait.modelTried;
+        const hfLandscape = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Landscape 16:9.", { width: 1280, height: 720 });
+        imageLandscapeBase64 = imageLandscapeBase64 || hfLandscape.base64;
+        imageLandscapeNote = imageLandscapeNote || hfLandscape.note;
+        imageLandscapeModel = imageLandscapeModel || hfLandscape.modelTried;
+      }
+    } else if (HUGGINGFACE_API_KEY) {
       const hf = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Portrait 4:5.", { width: 1024, height: 1280 });
       imageBase64 = hf.base64;
       imageNote = hf.note;
       imageModel = hf.modelTried;
-      // Landscape 16:9
       const hfL = await callHuggingFaceImage(bannerPrompt + "\nAspect ratio: Landscape 16:9.", { width: 1280, height: 720 });
       imageLandscapeBase64 = hfL.base64;
       imageLandscapeNote = hfL.note;
       imageLandscapeModel = hfL.modelTried;
+    } else {
+      imageNote = "No image provider configured (set OPENROUTER_IMAGE_MODEL+OPENROUTER_API_KEY or HUGGINGFACE_API_KEY). Showing banner prompt only.";
     }
 
     return NextResponse.json({
