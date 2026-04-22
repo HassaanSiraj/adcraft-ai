@@ -59,8 +59,8 @@ async function callGemini(input: GenerateAdBody) {
   try {
     const listRes = await fetch(listUrl, { method: "GET" });
     if (listRes.ok) {
-      const j = (await listRes.json()) as any;
-      available = (j?.models || []).map((m: any) => ({
+      const j = (await listRes.json()) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] };
+      available = (j?.models || []).map((m) => ({
         id: String(m?.name || "").split("/").pop() || "",
         methods: Array.isArray(m?.supportedGenerationMethods)
           ? m.supportedGenerationMethods
@@ -142,8 +142,8 @@ async function callGemini(input: GenerateAdBody) {
       let retryMs = 4000;
       try {
         const j = await res.json();
-        const details = j?.error?.details || [];
-        const retry = details.find((d: any) => d?.["@type"]?.includes("RetryInfo"));
+        const details: { "@type"?: string; retryDelay?: string }[] = j?.error?.details || [];
+        const retry = details.find((d) => d?.["@type"]?.includes("RetryInfo"));
         const delay = retry?.retryDelay || ""; // e.g., "4s"
         const m = String(delay).match(/(\d+(?:\.\d+)?)s/);
         if (m) retryMs = Math.ceil(parseFloat(m[1]) * 1000);
@@ -166,7 +166,7 @@ async function callGemini(input: GenerateAdBody) {
         );
       }
       const data2 = await res2.json();
-      const text2 = data2?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+      const text2 = data2?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p?.text).join("\n") || "";
       if (!text2) throw new Error("Empty response from Gemini");
       const firstBrace2 = text2.indexOf("{");
       const lastBrace2 = text2.lastIndexOf("}");
@@ -176,8 +176,8 @@ async function callGemini(input: GenerateAdBody) {
     const text = await res.text();
     throw new Error(`Gemini error (${chosen}): ${res.status} ${text}`);
   }
-  const data = (await res.json()) as any;
-  let text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]; promptFeedback?: { blockReason?: string } };
+  let text = data?.candidates?.[0]?.content?.parts?.map((p) => p?.text).join("\n") || "";
   if (!text) {
     const block = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason;
     if (block && String(block).toLowerCase().includes("safety")) {
@@ -196,8 +196,8 @@ async function callGemini(input: GenerateAdBody) {
       const looseTxt = await resLoose.text();
       throw new Error(`Gemini error (fallback) ${resLoose.status}: ${looseTxt}`);
     }
-    const looseData = await resLoose.json();
-    text = looseData?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("\n") || "";
+    const looseData = await resLoose.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    text = looseData?.candidates?.[0]?.content?.parts?.map((p) => p?.text).join("\n") || "";
     if (!text) {
       // As a last resort, synthesize reasonable defaults so UI can proceed
       const synth = synthesizeAds(input);
@@ -254,7 +254,7 @@ async function callGroq(input: GenerateAdBody) {
     const t = await res.text();
     throw new Error(`Groq error: ${res.status} ${t}`);
   }
-  const data = (await res.json()) as any;
+  const data = (await res.json()) as { choices?: { message?: { content?: string }; delta?: { content?: string } }[] };
   const text =
     data?.choices?.[0]?.message?.content ||
     data?.choices?.[0]?.delta?.content ||
@@ -304,7 +304,7 @@ async function callOpenRouter(input: GenerateAdBody) {
     const t = await res.text();
     throw new Error(`OpenRouter error: ${res.status} ${t}`);
   }
-  const data = (await res.json()) as any;
+  const data = (await res.json()) as { choices?: { message?: { content?: string }; delta?: { content?: string } }[] };
   const text =
     data?.choices?.[0]?.message?.content ||
     data?.choices?.[0]?.delta?.content ||
@@ -406,9 +406,9 @@ async function callHuggingFaceImage(
         return { base64, modelTried: model };
       }
       // Router returns JSON envelope; try to extract base64 image
-      const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null) as unknown;
       if (json) {
-        const stack: any[] = [json];
+        const stack: unknown[] = [json];
         const b64Regex = /^[A-Za-z0-9+/=\n\r]+$/;
         while (stack.length) {
           const node = stack.pop();
@@ -416,8 +416,8 @@ async function callHuggingFaceImage(
           if (typeof node === "string" && node.length > 100 && b64Regex.test(node)) {
             return { base64: node.replace(/\n|\r/g, ""), modelTried: model };
           }
-          if (Array.isArray(node)) stack.push(...node);
-          else if (typeof node === "object") stack.push(...Object.values(node));
+          if (Array.isArray(node)) stack.push(...(node as unknown[]));
+          else if (typeof node === "object") stack.push(...Object.values(node as Record<string, unknown>));
         }
         return { base64: null, modelTried: model, note: "HF router returned JSON without an image payload. Ensure this model supports text-to-image at the router endpoint." };
       }
@@ -481,7 +481,7 @@ async function callOpenRouterImage(
     }
     return { base64: null, modelTried: OPENROUTER_IMAGE_MODEL, note: `OpenRouter image error ${res.status}: ${t.slice(0, 180)}...` };
   }
-  const data = await res.json().catch(() => null);
+  const data = await res.json().catch(() => null) as { choices?: { message?: { images?: { image_url?: { url?: string }; imageUrl?: { url?: string } }[] } }[] } | null;
   const msg = data?.choices?.[0]?.message;
   const img = msg?.images?.[0]?.image_url?.url || msg?.images?.[0]?.imageUrl?.url;
   if (typeof img === "string" && img.startsWith("data:image/")) {
@@ -505,7 +505,7 @@ export async function POST(req: NextRequest) {
     if (OPENROUTER_API_KEY) {
       try {
         textData = await callOpenRouter(body);
-      } catch (orErr: any) {
+      } catch {
         try {
           textData = await callGemini(body);
         } catch {
@@ -599,8 +599,9 @@ export async function POST(req: NextRequest) {
       imageLandscapeModel,
       imageLandscapeNote,
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
